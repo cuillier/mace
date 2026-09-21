@@ -280,6 +280,8 @@ def _build_model(
             num_mag_radial_basis=args.num_mag_radial_basis,
             num_mag_radial_basis_one_body=args.num_mag_radial_basis_one_body,
             use_magmom_one_body=args.use_magmom_one_body,
+            embedding_specs=args.embedding_specs,
+            use_embedding_readout=args.use_embedding_readout,
         )
     if args.model == "MACE":
         if args.interaction_first not in [
