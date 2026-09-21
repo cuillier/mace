@@ -1865,6 +1865,29 @@ class MagneticScaleShiftMACE(MagneticMACE):
         else:
             pair_node_energy = torch.zeros_like(node_e0)
 
+        # Embeddings of additional features
+        if hasattr(self, "joint_embedding"):
+            embedding_features: Dict[str, torch.Tensor] = {}
+            for name, _ in self.embedding_specs.items():
+                embedding_features[name] = data[name]
+            node_feats += self.joint_embedding(
+                data["batch"],
+                embedding_features,
+            )
+            if hasattr(self, "embedding_readout"):
+                embedding_node_energy = torch.atleast_1d(
+                    self.embedding_readout(node_feats, node_heads)[
+                        num_atoms_arange, node_heads
+                    ].squeeze(-1)
+                )
+                embedding_energy = scatter_sum(
+                    src=embedding_node_energy,
+                    index=data["batch"],
+                    dim=0,
+                    dim_size=num_graphs,
+                )
+                e0 += embedding_energy
+
         # --- magnetic stuffs ---
 
         magmom_lengths = torch.norm(data["magmom"], dim=-1, keepdim=True)
