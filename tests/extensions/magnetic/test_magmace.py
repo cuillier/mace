@@ -1080,3 +1080,200 @@ def test_committee_stress_follows_the_first_member_not_the_last():
     assert stress_of([good, partial]) is True
     # first member has none -> not published, even though the last one had it
     assert stress_of([partial, good]) is False
+
+
+# ----------------------------------------------------------
+# Global embeddings (joint_embedding / embedding_specs)
+# ----------------------------------------------------------
+
+@pytest.fixture(name="magnetic_embedding_configs")
+def fixture_magnetic_embedding_configs():
+    """Fe dimers and isolated atoms spanning 2 elec_temp × 2 REF_magmom values."""
+    configs = []
+    np.random.seed(7)
+    base = Atoms(
+        numbers=[26, 26],
+        positions=[[0, 0, 0], [0, 0, 2.0]],
+        cell=[6.0] * 3,
+        pbc=[True] * 3,
+    )
+    for elec_temp in (300.0, 600.0):
+        for magmom_z in (0.0, 2.0):
+            # isolated Fe atom
+            atom = Atoms(numbers=[26], positions=[[0, 0, 0]], cell=[6] * 3, pbc=True)
+            atom.info["REF_energy"] = 0.0
+            atom.info["config_type"] = "IsolatedAtom"
+            atom.info["elec_temp"] = elec_temp
+            atom.arrays["REF_magmom"] = np.array([[0.0, 0.0, magmom_z]])
+            configs.append(atom)
+
+            # Fe dimer with slight random displacement
+            c = base.copy()
+            c.positions += np.random.normal(0, 0.05, size=c.positions.shape)
+            c.info["REF_energy"] = np.random.normal(0.0, 0.01)
+            c.info["elec_temp"] = elec_temp
+            c.new_array("REF_forces", np.random.normal(0, 0.01, size=c.positions.shape))
+            c.new_array("REF_magforces", np.zeros(c.positions.shape))
+            c.new_array("REF_magmom", np.tile([[0.0, 0.0, magmom_z]], (len(c), 1)))
+            configs.append(c)
+
+    return configs
+
+
+_ELEC_TEMP_EMBEDDING_SPECS = {
+    "elec_temp": {
+        "type": "continuous",
+        "per": "graph",
+        "in_dim": 1,
+        "emb_dim": 4,
+    }
+}
+
+
+def _build_magnetic_embedding_model(seed=99):
+    """MagneticScaleShiftMACE with elec_temp joint embedding and one-body magmom correction."""
+    torch.manual_seed(seed)
+    with default_dtype(torch.float32):
+        return MagneticScaleShiftMACE(
+            r_max=3.5,
+            num_bessel=4,
+            num_polynomial_cutoff=4,
+            max_ell=2,
+            interaction_cls=interaction_classes[
+                "MagneticRealAgnosticSpinOrbitCoupledDensityInteractionBlock"
+            ],
+            interaction_cls_first=interaction_classes[
+                "MagneticRealAgnosticSpinOrbitCoupledDensityInteractionBlock"
+            ],
+            num_interactions=1,
+            num_elements=1,
+            hidden_irreps=o3.Irreps("8x0e"),
+            MLP_irreps=o3.Irreps("4x0e"),
+            atomic_energies=np.zeros(1),
+            avg_num_neighbors=1.0,
+            atomic_numbers=[26],
+            correlation=[1],
+            gate=torch.nn.functional.silu,
+            atomic_inter_shift=0.0,
+            atomic_inter_scale=1.0,
+            m_max=[3.0],
+            num_mag_radial_basis=8,
+            num_mag_radial_basis_one_body=4,
+            max_m_ell=1,
+            use_magmom_one_body=True,
+            embedding_specs=_ELEC_TEMP_EMBEDDING_SPECS,
+            use_embedding_readout=True,
+        )
+
+
+def _isolated_fe_data(elec_temp: float, magmom_z: float, dtype=torch.float32):
+    """Raw data dict for a single Fe atom with no neighbors."""
+    return {
+        "positions": torch.tensor([[0.0, 0.0, 0.0]], dtype=dtype),
+        "node_attrs": torch.nn.functional.one_hot(
+            torch.zeros(1, dtype=torch.long), num_classes=1
+        ).to(dtype),
+        "batch": torch.zeros(1, dtype=torch.long),
+        "ptr": torch.tensor([0, 1], dtype=torch.long),
+        "edge_index": torch.zeros((2, 0), dtype=torch.long),
+        "shifts": torch.zeros((0, 3), dtype=dtype),
+        "unit_shifts": torch.zeros((0, 3), dtype=dtype),
+        "cell": torch.eye(3, dtype=dtype).unsqueeze(0) * 10.0,
+        "magmom": torch.tensor([[0.0, 0.0, magmom_z]], dtype=dtype),
+        "elec_temp": torch.tensor([elec_temp], dtype=dtype),
+    }
+
+
+def _fe_dimer_embedding_data(elec_temp: float, magmom_z: float, dtype=torch.float32):
+    """Raw data dict for a 2-Fe dimer with neighbors."""
+    n = 2
+    return {
+        "positions": torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 2.0]], dtype=dtype),
+        "node_attrs": torch.nn.functional.one_hot(
+            torch.zeros(n, dtype=torch.long), num_classes=1
+        ).to(dtype),
+        "batch": torch.zeros(n, dtype=torch.long),
+        "ptr": torch.tensor([0, n], dtype=torch.long),
+        "edge_index": torch.tensor([[0, 1], [1, 0]], dtype=torch.long),
+        "shifts": torch.zeros((2, 3), dtype=dtype),
+        "unit_shifts": torch.zeros((2, 3), dtype=dtype),
+        "cell": torch.eye(3, dtype=dtype).unsqueeze(0) * 10.0,
+        "magmom": torch.tensor(
+            [[0.0, 0.0, magmom_z], [0.0, 0.0, magmom_z]], dtype=dtype
+        ),
+        "elec_temp": torch.tensor([elec_temp], dtype=dtype),
+    }
+
+
+def test_joint_embedding_model_has_embedding_components():
+    """Model built with embedding_specs gains joint_embedding and embedding_readout."""
+    model = _build_magnetic_embedding_model()
+
+    assert hasattr(model, "joint_embedding"), "joint_embedding not registered"
+    assert hasattr(model, "embedding_readout"), "embedding_readout not registered"
+    assert "elec_temp" in model.embedding_specs
+
+
+def test_joint_embedding_elec_temp_changes_isolated_atom_energy():
+    """elec_temp 300 vs 600 yields different energies for an isolated Fe atom.
+
+    The joint embedding modifies node_feats which feeds into embedding_readout.
+    With use_embedding_readout=True that readout adds directly to e0, so the
+    path is active even when there are no neighbors.
+    """
+    model = _build_magnetic_embedding_model().eval()
+
+    e300 = model(_isolated_fe_data(elec_temp=300.0, magmom_z=2.0))["energy"].item()
+    e600 = model(_isolated_fe_data(elec_temp=600.0, magmom_z=2.0))["energy"].item()
+
+    assert np.isfinite(e300), "Non-finite energy at elec_temp=300"
+    assert np.isfinite(e600), "Non-finite energy at elec_temp=600"
+    assert abs(e300 - e600) > 1e-6, (
+        "elec_temp=300 and elec_temp=600 gave identical isolated-atom energies; "
+        "joint_embedding is not reaching the energy (fix is not active)."
+    )
+
+
+def test_joint_embedding_magmom_changes_isolated_atom_energy():
+    """magmom_z=0 vs magmom_z=2 yields different energies for an isolated Fe atom.
+
+    With use_magmom_one_body=True the one-body Chebyshev expansion contributes
+    directly to the per-atom energy; its radials depend on |magmom|.
+    """
+    model = _build_magnetic_embedding_model().eval()
+
+    e_zero = model(_isolated_fe_data(elec_temp=300.0, magmom_z=0.0))["energy"].item()
+    e_two  = model(_isolated_fe_data(elec_temp=300.0, magmom_z=2.0))["energy"].item()
+
+    assert np.isfinite(e_zero), "Non-finite energy at magmom_z=0"
+    assert np.isfinite(e_two), "Non-finite energy at magmom_z=2"
+    assert abs(e_zero - e_two) > 1e-6, (
+        "magmom_z=0 and magmom_z=2 gave identical isolated-atom energies; "
+        "one-body magmom correction is not active."
+    )
+
+
+def test_joint_embedding_all_four_combinations_are_finite():
+    """All 4 (elec_temp, magmom_z) combinations from the synthetic dataset yield finite energies."""
+    model = _build_magnetic_embedding_model().eval()
+
+    for elec_temp in (300.0, 600.0):
+        for magmom_z in (0.0, 2.0):
+            data = _isolated_fe_data(elec_temp=elec_temp, magmom_z=magmom_z)
+            E = model(data)["energy"].item()
+            assert np.isfinite(E), (
+                f"Non-finite energy for elec_temp={elec_temp}, magmom_z={magmom_z}"
+            )
+
+
+def test_joint_embedding_dimer_elec_temp_changes_energy():
+    """elec_temp changes energy for a dimer, exercising joint_embedding through the interaction pipeline."""
+    model = _build_magnetic_embedding_model().eval()
+
+    e300 = model(_fe_dimer_embedding_data(elec_temp=300.0, magmom_z=2.0))["energy"].item()
+    e600 = model(_fe_dimer_embedding_data(elec_temp=600.0, magmom_z=2.0))["energy"].item()
+
+    assert np.isfinite(e300) and np.isfinite(e600)
+    assert abs(e300 - e600) > 1e-6, (
+        "elec_temp=300 and elec_temp=600 gave identical dimer energies."
+    )
