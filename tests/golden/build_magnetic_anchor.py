@@ -98,7 +98,7 @@ ANCHOR_CONFIG: Dict[str, Any] = {
     # The residual variant for the later layer, as the plain anchor does: the
     # first layer has no self-connection to carry.
     "interaction_cls": (
-        "MagneticRealAgnosticResidueSpinOrbitCoupledDensityInteractionBlock"
+        "MagneticRealAgnosticResidualSpinOrbitCoupledDensityInteractionBlock"
     ),
     "interaction_cls_first": (
         "MagneticRealAgnosticSpinOrbitCoupledDensityInteractionBlock"

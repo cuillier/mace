@@ -1226,9 +1226,9 @@ DISPOSITIONS: Tuple[Tuple[str, str, str, str], ...] = (
         "convolution",
     ),
     (
-        "block.MagneticRealAgnosticResidueSpinOrbitCoupledDensityInteractionBlock",
+        "block.MagneticRealAgnosticResidualSpinOrbitCoupledDensityInteractionBlock",
         MERGE,
-        "MagneticRealAgnosticResidueSpinOrbitCoupledDensityInteractionBlock",
+        "MagneticRealAgnosticResidualSpinOrbitCoupledDensityInteractionBlock",
         "the residual spin-orbit-coupled variant collapses into a configured "
         "convolution like the other interaction blocks",
     ),

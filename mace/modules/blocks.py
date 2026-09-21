@@ -1782,7 +1782,7 @@ class MagneticRealAgnosticSpinOrbitCoupledDensityInteractionBlock(
 
 
 @compile_mode("script")
-class MagneticRealAgnosticResidueSpinOrbitCoupledDensityInteractionBlock(
+class MagneticRealAgnosticResidualSpinOrbitCoupledDensityInteractionBlock(
     MagneticInteractionBlock
 ):
     def _setup(self) -> None:

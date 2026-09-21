@@ -1,6 +1,6 @@
 """The residual SOC interaction, which `--interaction` offers and nothing built.
 
-`MagneticRealAgnosticResidueSpinOrbitCoupledDensityInteractionBlock` is in
+`MagneticRealAgnosticResidualSpinOrbitCoupledDensityInteractionBlock` is in
 `interaction_classes` and in the `--interaction` choices, and the magnetic tests
 all use its non-residual sibling
 (`MagneticRealAgnosticSpinOrbitCoupledDensityInteractionBlock`). So the residual
@@ -23,7 +23,7 @@ from mace.modules import interaction_classes
 from mace.modules.extensions import MagneticScaleShiftMACE
 from mace.tools import AtomicNumberTable, torch_geometric
 
-RESIDUAL_SOC = "MagneticRealAgnosticResidueSpinOrbitCoupledDensityInteractionBlock"
+RESIDUAL_SOC = "MagneticRealAgnosticResidualSpinOrbitCoupledDensityInteractionBlock"
 PLAIN_SOC = "MagneticRealAgnosticSpinOrbitCoupledDensityInteractionBlock"
 
 

@@ -1639,7 +1639,7 @@ class MagneticMACE(torch.nn.Module):
 
         # Use the appropriate self connection at the first layer for proper E0
         use_sc_first = False
-        if "Resid" in str(interaction_cls_first):
+        if "Residual" in str(interaction_cls_first):
             use_sc_first = True
 
         node_feats_irreps_out = inter.target_irreps
